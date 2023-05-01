@@ -11,6 +11,7 @@ class Reaper {
         this.volumeLookUpTableReversed = Object.fromEntries(Object.entries(this.volumeLookUpTable)
             .map(([key, val]) => [val, key]))
         this.socket = null
+
         this.bindEvents()
         this.connect(opts)
         this.sync()
@@ -31,13 +32,6 @@ class Reaper {
         }
         Object.entries(handlers).forEach(([event, handler]) => this.on(event, handler))
         this.events.once('infoEnd', e => this.events.emit('ready', e))
-
-        this.on('infoStart', e => console.log('Info start'))
-        this.on('trackVal', e => console.log(`Track #${e.tid + 1} ${track(e).name} ${e.key} => ${e.val}`))
-        this.on('fxParamVal', e => console.log(`Track #${e.tid + 1} ${track(e).name} - FX ${e.fxid + 1} ${
-            track(e).fx[e.fxid].name} #${e.pid} => ${e.val}`))
-        this.on('sendVal', e => console.log(`Track ${e.tid + 1} ${track(e).name} - Send ${e.sid + 1} ${
-            track(e).sends[e.sid].name} ${e.key} => ${e.val}`))
     }
     connect(opts) {
         this.socket = new net.Socket()
@@ -65,13 +59,16 @@ class Reaper {
         const key = this.cacheSend(track, send)
         this.send(`sval ${key.tid} ${key.sid} ${param} ${this.coerceVal(val)}`)
     }
+    tempo(bpm) {
+        this.send(`tempo ${bpm}`)
+    }
     enableFx(track, fx, enabled = true) {
         this.fxVal(track, fx, 'Bypass', enabled)
     }
-    toggleEnableFx(track, fx) {
+    toggleFx(track, fx) {
         this.fxVal(track, fx, 'Bypass', 'TOGGLE')
     }
-    toggleMuteTrack(name) {
+    toggleMute(name) {
         this.muteTrack(name, 'TOGGLE')
     }
     toggleMuteSend(track, send) {
@@ -92,7 +89,7 @@ class Reaper {
     trackVolumePercent(name, pct) {
         this.trackVolumeAbsolute(name, this.volumeLookUpTable[Math.floor(pct * 127)])
     }
-    trackVolume(name) {
+    volume(name) {
         return msg => this.trackVolumePercent(name, msg.value / 127)
     }
     fxParamMidiHandler(track, fx, param) {

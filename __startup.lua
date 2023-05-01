@@ -148,7 +148,7 @@ end
 
 -- Basic unoptimized subset of, non bulletproof JSON, scalars, objects (Lua tables), arrays (Lua table 1-index keys)
 function serializeJson(val)
-  local valType, ARRAY, OBJECT, tableType, out = type(val), 1, 0
+  local valType, ARRAY, OBJECT, tableType, out = type(val), 1, 0, nil
   if (valType == "table") then
       for key,value in pairs(val) do
           if (tableType == nil) then
