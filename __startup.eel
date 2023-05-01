@@ -1,0 +1,98 @@
+//@gmem=j5
+
+// Config section (currently, just the TCP port)
+TCP_PORT = 9595;
+
+// Global shared mammary addressticles, LUA + JSFX constants block:
+G_BUF_SIZE = 1024 * 1024;
+gp_freeGlobalMem = 0;
+gp_input_start    = gp_freeGlobalMem ; gp_freeGlobalMem = gp_freeGlobalMem + 1;
+gp_input_end      = gp_freeGlobalMem ; gp_freeGlobalMem = gp_freeGlobalMem + 1;
+gp_input_data     = gp_freeGlobalMem ; gp_freeGlobalMem = gp_freeGlobalMem + G_BUF_SIZE;
+gp_output_start   = gp_freeGlobalMem ; gp_freeGlobalMem = gp_freeGlobalMem + 1;
+gp_output_end     = gp_freeGlobalMem ; gp_freeGlobalMem = gp_freeGlobalMem + 1;
+gp_output_data    = gp_freeGlobalMem ; gp_freeGlobalMem = gp_freeGlobalMem + G_BUF_SIZE;
+
+// Initialize the ring buffers empty
+gmem[gp_input_start] = 0;
+gmem[gp_input_end] = 0;
+gmem[gp_output_start] = 0;
+gmem[gp_output_end] = 0;
+
+// Variables
+conn = 0;
+newConn = 0;
+loopCount = 0;
+dataIndex = -1;
+writeStart = -1;
+status = 1;
+newInputMessages = 0;
+index = 0;
+len = 0;
+nextChar = 0;
+#msg    = "i dont get eel";
+#ip_out = "i dont get eel";
+#output = "i dont get eel";
+
+function main()
+(
+    newConn = tcp_listen(TCP_PORT, "", #ip_out);
+    (newConn > 0) ? (
+      // ShowConsoleMsg( sprintf(#, "New connection! %d %s \n", newConn, #ip_out); );
+      conn = newConn;
+      tcp_set_block(conn, 0);
+    );
+    (newConn < 0) ? (
+      ShowConsoleMsg( sprintf(#, "Listen error! %d \n", newConn); );
+    );
+
+    (conn > 0) ? (
+      dataIndex = gmem[gp_input_end % G_BUF_SIZE];
+      writeStart = dataIndex;
+      newInputMessages = 0;
+      status = 1;
+      while (status > 0) (
+          status = tcp_recv(conn, #msg);
+          (status > 0) ? (
+            newInputMessages = newInputMessages + 1;
+            index = 0;
+            len = strlen(#msg);
+            while (index < len) (
+              nextChar = str_getchar(#msg, index);
+              // ShowConsoleMsg( sprintf(#, "%d Copying '%c', # %d of len %d \n", loopCount, nextChar, index, len); );
+              gmem[(gp_input_data + dataIndex) % G_BUF_SIZE] = nextChar;
+              index = index + 1;
+              dataIndex = dataIndex + 1; 
+            );
+          );
+          // (status == 0) ? ( ShowConsoleMsg("would block... \n");  );
+          // (status < 0) ? ( ShowConsoleMsg( sprintf(#, "%d Receive error! %d %s \n", loopCount, status, #msg); ); );
+      );
+      
+      (newInputMessages) ? (
+        gmem[gp_input_end] = dataIndex % G_BUF_SIZE;
+        // ShowConsoleMsg( sprintf(#, "%d Received and copied %d bytes for %d msgs \n", loopCount, dataIndex - writeStart, newInputMessages); );
+      );
+
+      writeStart = gmem[gp_output_start];
+      dataIndex = writeStart;
+
+      #output = "";
+      while (dataIndex != gmem[gp_output_end]) (
+        nextChar = gmem[(gp_output_data + dataIndex) % G_BUF_SIZE];
+        #output += sprintf(#, "%c", nextChar);
+        dataIndex = dataIndex + 1;
+      );
+
+      (strlen(#output)) ? (
+        status = tcp_send(conn, #output);
+        gmem[gp_output_start] = dataIndex % G_BUF_SIZE;
+        // ShowConsoleMsg( sprintf(#, "Sent output to client connection, status: %d,  #chars: %d, advanced: %d, body:\n%s\n\n", status, dataIndex - writeStart, dataIndex, #output); ); 
+      )
+    );
+    
+    loopCount = loopCount + 1;
+    defer("main()");
+);
+
+main();

@@ -1,0 +1,17 @@
+{
+    "name": "j5-reaper",
+    "version": "1.0.0",
+    "description": "TCP Bridge to control Reaper, simple electron demo",
+    "main": "electron-bootstrap.js",
+    "author": "Johnny Marnell",
+    "license": "ISC",
+    "scripts": {
+        "start": "electron ."
+    },
+    "devDependencies": {
+        "electron": "^24.1.3"
+    },
+    "dependencies": {
+        "j5-midi": "github:JohnnyMarnell/j5-midi"
+    }
+}
