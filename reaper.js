@@ -1,5 +1,7 @@
 const nodeEvents = require('events')
 const net = require('net')
+const readline = require('readline')
+const fs = require('fs')
 
 /**
  * Uses the underlying TCP Network communication control protocol,
@@ -7,6 +9,7 @@ const net = require('net')
  */
 class Reaper {
     constructor(opts = {}) {
+        this.opts = opts
         this.project = {}
         this.events = new nodeEvents.EventEmitter()
         this.on = this.events.on.bind(this.events)
@@ -17,6 +20,7 @@ class Reaper {
         this.volumeLookUpTableReversed = Object.fromEntries(Object.entries(this.volumeLookUpTable)
             .map(([key, val]) => [val, key]))
         this.socket = null
+        this.stream = null
 
         this.bindEvents()
         this.connect(opts)
@@ -39,31 +43,43 @@ class Reaper {
                 Object.keys(this.project.tracks).length} tracks`),
         }
         Object.entries(handlers).forEach(([event, handler]) => this.on(event, handler))
-        this.events.once('infoEnd', e => this.events.emit('ready', e))
+        this.events.once('infoEnd', e => this.events.emit('ready', {project: {...this.project}}))
     }
     connect(opts) {
         this.socket = new net.Socket()
         this.socket.connect(opts.port || 9595, opts.ip || '127.0.0.1', () => console.log('Connected'))
-        this.socket.on('data', msg => this.handleMessage(msg))
+        this.stream = readline.createInterface(this.socket)
+        this.stream.on('line', msg => this.handleMessage(msg))
         this.socket.on('close', () => console.log('Disconnected'))
     }
     sync() {
-        this.send('info')
+        if (process.env.J5_REAPER_CACHE === "true") {
+            const path = `${process.env.HOME}/.j5-reaper-cache`
+            if (fs.existsSync(path)) {
+                this.project = JSON.parse(fs.readFileSync(path).toString('utf-8'))
+                setTimeout(() => this.events.emit('ready', {project: {...this.project}}), 200)
+            } else {
+                this.send('info')
+                this.events.once('ready', () => fs.writeFileSync(path, JSON.stringify(this.project)))
+            }
+        } else {
+            this.send('info')
+        }
     }
     handleMessage(msg) {
-        msg.toString('utf8').trim().split('\n')
-            .map(line => JSON.parse(line))
-            .forEach(event => this.events.emit(event.type, event))
+        if (this.opts.echo) console.log(msg)
+        const event = JSON.parse(msg)
+        this.events.emit(event.type, event)
     }
     trackVal(track, param, val) {
         const key = this.cacheTrack(track)
         this.send(`tval ${key.tid} ${param} ${val}`)
     }
-    fxVal(track, fx, param, val) {
+    fxParam(track, fx, param, val) {
         const key = this.cacheFxParam(track, fx, param)
         this.send(`fxp ${key.tid} ${key.fxid} ${key.pid} ${this.coerceVal(val)}`)
     }
-    loadFxPreset(track, fx, preset) {
+    switchFxPreset(track, fx, preset) {
         const key = this.cacheFxPreset(track, fx, preset)
         this.send(`fxpre ${key.tid} ${key.fxid} ${key.preid}`)
     }
@@ -72,10 +88,10 @@ class Reaper {
         this.send(`sval ${key.tid} ${key.sid} ${param} ${this.coerceVal(val)}`)
     }
     enableFx(track, fx, enabled = true) {
-        this.fxVal(track, fx, 'Bypass', enabled)
+        this.fxParam(track, fx, 'Bypass', enabled)
     }
     toggleFx(track, fx) {
-        this.fxVal(track, fx, 'Bypass', 'TOGGLE')
+        this.fxParam(track, fx, 'Bypass', 'TOGGLE')
     }
     toggleMute(name) {
         this.muteTrack(name, 'TOGGLE')
@@ -105,13 +121,14 @@ class Reaper {
         return msg => this.volumeMidi(name, msg.value)
     }
     fxParamMidiHandler(track, fx, param) {
-        return msg => this.fxVal(track, fx, param, msg.value / 127)
+        return msg => this.fxParam(track, fx, param, msg.value / 127)
     }
     coerceVal(val) {
         return val === true ? `1.0` : val === false ? `0.0` : val
     }
-    send(str) {
-        this.socket.write(str + '\n')
+    send(command) {
+        if (this.opts.echo) console.log(command)
+        this.socket.write(command + '\n')
     }
 
     cacheTrack(track) {
@@ -127,7 +144,7 @@ class Reaper {
             .flatMap(f => f.params).filter(p => p.name.includes(param))[0])
     }
     cacheFxPreset(track, fx, preset) {
-        const key = `t.${track}.fx.${fx}.pre.${param}`
+        const key = `t.${track}.fx.${fx}.pre.${preset}`
         return this.cache[key] || (this.cache[key] = Object.values(this.project.tracks)
             .filter(t => t.name.includes(track))
             .flatMap(t => t.fx).filter(f => f.name.includes(fx))

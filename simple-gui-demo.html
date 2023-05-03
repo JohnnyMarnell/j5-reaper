@@ -2,23 +2,24 @@
 <html>
   <head>
     <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'">
     <title>Reaper TCP Bridge - Simple Demo</title>
   </head>
   <body>
-    <h1>Simple Controls</h1>
+    <style>body {font-family: "Lucida Grande", "Geneva", "Helvetica", Arial, sans-serif}</style>
+    <h3>Simple REAPER GUI Example</h3>
     
-    <!-- todo, look better, sliders, real buttons -->
+    <!-- My html is ...limited -->
     <div id="masterMute">Master Mute</div> <br>
-    <input id="masterVolume" min="0" max="127" type="range"
-      style="transform: rotate(270deg);">
+    <input id="masterVolume" min="0" max="127" type="range"> <br>
     Gain: <span id="masterGain"></span> <br>
     
     <div id="guitarMute">Guitar Mute</div> <br>
-    <input id="guitarVolume" min="0" max="127" type="range"
-      style="transform: rotate(270deg);">
+    <input id="guitarVolume" min="0" max="127" type="range"> <br>
     Gain: <span id="guitarGain"></span> <br>
     
+    Events: <br>
+    <span id="events"></span> <br>
     Project Info: <br>
     <pre>
       

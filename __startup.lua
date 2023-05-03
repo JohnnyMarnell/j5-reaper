@@ -159,12 +159,13 @@ end
 function out(kind, msg)
   local index, json = reaper.gmem_read(gp_output_end), nil
   msg["type"] = kind
-  json = serializeJson(msg) .. "\n"
+  json = serializeJson(msg)
   for c in json:gmatch"." do
     reaper.gmem_write((gp_output_data + index) % G_OUT_BUF_SIZE, string.byte(c))
     index = index + 1
   end
-  reaper.gmem_write(gp_output_end, index % G_OUT_BUF_SIZE)
+  reaper.gmem_write((gp_output_data + index) % G_OUT_BUF_SIZE, string.byte('\n'))
+  reaper.gmem_write(gp_output_end, (index + 1) % G_OUT_BUF_SIZE)
   log("out:", json)
 end
 
