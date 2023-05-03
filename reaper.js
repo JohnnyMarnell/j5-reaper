@@ -1,13 +1,19 @@
 const nodeEvents = require('events')
 const net = require('net')
 
+/**
+ * Uses the underlying TCP Network communication control protocol,
+ * with easier methods and name lookups.
+ */
 class Reaper {
     constructor(opts = {}) {
         this.project = {}
         this.events = new nodeEvents.EventEmitter()
         this.on = this.events.on.bind(this.events)
         this.cache = {}
-        this.volumeLookUpTable = JSON.parse(require('fs').readFileSync(`${__dirname}/reaperMidiFaderValues.json`))
+        this.volumeLookUpTable = JSON
+            .parse(require('fs')
+            .readFileSync(`${__dirname}/misc/reaperMidiFaderValues.json`))
         this.volumeLookUpTableReversed = Object.fromEntries(Object.entries(this.volumeLookUpTable)
             .map(([key, val]) => [val, key]))
         this.socket = null
@@ -21,8 +27,10 @@ class Reaper {
         const handlers = {
             infoStart: e => this.project = { tracks: {} },
             track: e => this.project.tracks[e.tid] = {...e, fx: [], sends: []},
-            fx: e => track(e).fx[e.fxid] = {...e, params: []},
+            fx: e => track(e).fx[e.fxid] = {...e, params: [], presets: [], lastPreset: null},
             fxParam: e => track(e).fx[e.fxid].params[e.pid] = {...e, },
+            fxPreset: e => track(e).fx[e.fxid].presets[e.preid] = {...e, },
+            fxPresetActive: e => track(e).fx[e.fxid].lastPreset = {...e, },
             send: e => track(e).sends[e.sid] = {...e, },
             trackVal: e => track(e)[e.key] = e.val,
             sendVal: e => track(e).sends[e.sid][e.key] = e.val,
@@ -55,12 +63,13 @@ class Reaper {
         const key = this.cacheFxParam(track, fx, param)
         this.send(`fxp ${key.tid} ${key.fxid} ${key.pid} ${this.coerceVal(val)}`)
     }
+    loadFxPreset(track, fx, preset) {
+        const key = this.cacheFxPreset(track, fx, preset)
+        this.send(`fxpre ${key.tid} ${key.fxid} ${key.preid}`)
+    }
     sendVal(track, send, param, val) {
         const key = this.cacheSend(track, send)
         this.send(`sval ${key.tid} ${key.sid} ${param} ${this.coerceVal(val)}`)
-    }
-    tempo(bpm) {
-        this.send(`tempo ${bpm}`)
     }
     enableFx(track, fx, enabled = true) {
         this.fxVal(track, fx, 'Bypass', enabled)
@@ -89,8 +98,11 @@ class Reaper {
     trackVolumePercent(name, pct) {
         this.trackVolumeAbsolute(name, this.volumeLookUpTable[Math.floor(pct * 127)])
     }
+    volumeMidi(name, val) {
+        this.trackVolumePercent(name, val / 127)
+    }
     volume(name) {
-        return msg => this.trackVolumePercent(name, msg.value / 127)
+        return msg => this.volumeMidi(name, msg.value)
     }
     fxParamMidiHandler(track, fx, param) {
         return msg => this.fxVal(track, fx, param, msg.value / 127)
@@ -113,6 +125,13 @@ class Reaper {
             .filter(t => t.name.includes(track))
             .flatMap(t => t.fx).filter(f => f.name.includes(fx))
             .flatMap(f => f.params).filter(p => p.name.includes(param))[0])
+    }
+    cacheFxPreset(track, fx, preset) {
+        const key = `t.${track}.fx.${fx}.pre.${param}`
+        return this.cache[key] || (this.cache[key] = Object.values(this.project.tracks)
+            .filter(t => t.name.includes(track))
+            .flatMap(t => t.fx).filter(f => f.name.includes(fx))
+            .flatMap(f => f.presets).filter(p => p.name.includes(preset))[0])
     }
     cacheSend(track, send) {
         const key = `t.${track}.s.${send}`

@@ -12,6 +12,7 @@
         "electron": "^24.1.3"
     },
     "dependencies": {
-        "j5-midi": "github:JohnnyMarnell/j5-midi"
+        "j5-midi": "github:JohnnyMarnell/j5-midi",
+        "yaml": "^2.2.2"
     }
 }

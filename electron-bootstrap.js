@@ -1,3 +1,4 @@
+/* Just a basic Electron main.js, taken from example */
 const { app, BrowserWindow } = require('electron')
 const path = require('path')
 

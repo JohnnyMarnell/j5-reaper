@@ -28,6 +28,7 @@ function handleAction(str)
   elseif (tokens[1] == 'tval')  then setTrackValue(tonumber(tokens[2]), tokens[3], tokens[4])
   elseif (tokens[1] == 'sval')  then setSendValue(tonumber(tokens[2]), tonumber(tokens[3]), tokens[4], tokens[5])
   elseif (tokens[1] == 'fxp')   then setFxParam(tonumber(tokens[2]), tonumber(tokens[3]), tonumber(tokens[4]), tokens[5])
+  elseif (tokens[1] == 'fxpre') then loadFxPreset(tonumber(tokens[2]), tonumber(tokens[3]), tonumber(tokens[4]))
   elseif (tokens[1] == 'info')  then sendProjectInfo()
   elseif (LOG_UNKNOWN_ACTIONS)  then log("UNKNOWN ACTION", str)
   end
@@ -49,6 +50,11 @@ function setFxParam(tid, fxid, pid, val)
   reaper.TrackFX_SetParamNormalized(getTrack(tid), fxid, pid, val)
   out("fxParamVal", {tid = tid, fxid = fxid, pid = pid, val = val})
 end
+function loadFxPreset(tid, fxid, preid)
+  reaper.TrackFX_SetPresetByIndex(getTrack(tid), fxid, preid)
+  local _, prename = reaper.TrackFX_GetPreset(getTrack(tid), fxid)
+  out("fxPresetActive", {tid = tid, fxid = fxid, preid = preid, name = prename})
+end
 function setSendValue(tid, sid, key, val)
   val = toggleable(val, reaper.GetTrackSendInfo_Value(getTrack(tid), 0, sid, key))
   reaper.SetTrackSendInfo_Value(getTrack(tid), 0, sid, key, val)
@@ -64,25 +70,40 @@ function sendProjectInfo()
   local SEND_INFO = {'D_VOL', 'B_MUTE', 'D_PAN'}
 
   out("infoStart", {})
-  for tid = 0, reaper.CountTracks(0) - 1 do
-    local track, val = reaper.GetTrack(0, tid)
-    local retval1, tname = reaper.GetTrackName(track)
+  for tid = -1, reaper.CountTracks(0) - 1 do
+    local track, val = getTrack(tid)
+    local retval1, tname, name, preid, count, _ = reaper.GetTrackName(track)
     out("track", {tid = tid, name = tname})
-    for fx = 0, reaper.TrackFX_GetCount(track) - 1 do
-      local retval2, fname = reaper.TrackFX_GetFXName(track, fx)
-      out("fx", {tid = tid, fxid = fx, name = fname})
-      for pid = 0, reaper.TrackFX_GetNumParams(track, fx) - 1 do
-        local retval3, pname = reaper.TrackFX_GetParamName(track, fx, pid)
-        val = reaper.TrackFX_GetParamNormalized(track, fx, pid)
-        out("fxParam", {tid = tid, fxid = fx, pid = pid, name = pname, val = val})
+    for fxid = 0, reaper.TrackFX_GetCount(track) - 1 do
+      local retval2, fname = reaper.TrackFX_GetFXName(track, fxid)
+      out("fx", {tid = tid, fxid = fxid, name = fname})
+      for pid = 0, reaper.TrackFX_GetNumParams(track, fxid) - 1 do
+        local retval3, pname = reaper.TrackFX_GetParamName(track, fxid, pid)
+        val = reaper.TrackFX_GetParamNormalized(track, fxid, pid)
+        out("fxParam", {tid = tid, fxid = fxid, pid = pid, name = pname, val = val})
       end
+      -- Boy the preset API seems janky...
+      _, name = reaper.TrackFX_GetPreset(track, fxid)
+      preid, count = reaper.TrackFX_GetPresetIndex(track, fxid)
+      if _ == true and preid ~= -1 and name ~= "" then
+        out("fxPresetActive", {tid = tid, fxid = fxid, preid = preid, name = name})
+      end
+      reaper.Undo_BeginBlock2(0)
+      for preid = 0, count - 1 do
+        reaper.TrackFX_SetPresetByIndex(track, fxid, preid)
+        _, name = reaper.TrackFX_GetPreset(track, fxid)
+        if _ ~= true then reaper.MB("FX Preset error", "error", 1) end
+        out("fxPreset", {tid = tid, fxid = fxid, preid = preid, name = name})
+      end
+      reaper.Undo_EndBlock2(0, "Boy the preset API seems janky...", 2) -- track FX flag == 2
+      reaper.Undo_DoUndo2(0)
     end
     for i,key in pairs(TRACK_INFO) do
         val = reaper.GetMediaTrackInfo_Value(track, key)
         out("trackVal", {tid = tid, key = key, val = val })
     end
     for sid = 0, reaper.GetTrackNumSends(track, 0) - 1 do
-      local retval4, sname = reaper.GetTrackSendName(track, sid)
+      local retval7, sname = reaper.GetTrackSendName(track, sid)
       out("send", {tid = tid, sid = sid, name = sname})
       for i,key in pairs(SEND_INFO) do
         val = reaper.GetTrackSendInfo_Value(track, 0, sid, key)
