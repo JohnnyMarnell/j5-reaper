@@ -6,14 +6,15 @@ LOG_ENABLED = false
 LOG_UNKNOWN_ACTIONS = true
 
 -- Global shared mammary addressticles, LUA + JSFX constants block:
-G_BUF_SIZE = 1024 * 1024;
+G_IN_BUF_SIZE = 10 * 1024;
+G_OUT_BUF_SIZE = 4 * 1024 * 1024;
 gp_freeGlobalMem = 0;
 gp_input_start    = gp_freeGlobalMem ; gp_freeGlobalMem = gp_freeGlobalMem + 1;
 gp_input_end      = gp_freeGlobalMem ; gp_freeGlobalMem = gp_freeGlobalMem + 1;
-gp_input_data     = gp_freeGlobalMem ; gp_freeGlobalMem = gp_freeGlobalMem + G_BUF_SIZE;
+gp_input_data     = gp_freeGlobalMem ; gp_freeGlobalMem = gp_freeGlobalMem + G_IN_BUF_SIZE;
 gp_output_start   = gp_freeGlobalMem ; gp_freeGlobalMem = gp_freeGlobalMem + 1;
 gp_output_end     = gp_freeGlobalMem ; gp_freeGlobalMem = gp_freeGlobalMem + 1;
-gp_output_data    = gp_freeGlobalMem ; gp_freeGlobalMem = gp_freeGlobalMem + G_BUF_SIZE;
+gp_output_data    = gp_freeGlobalMem ; gp_freeGlobalMem = gp_freeGlobalMem + G_OUT_BUF_SIZE;
 
 ----------------------------------------------------------------------------------------
 -- Reaper project modify / actions, and broadcast consequence / output
@@ -144,12 +145,12 @@ function handleInput()
   local index = inputStart
   if (index ~= nil and index ~= reaper.gmem_read(gp_input_end)) then
     while (index ~= reaper.gmem_read(gp_input_end)) do
-      nextChar = string.char(reaper.gmem_read((gp_input_data + index) % G_BUF_SIZE))
+      nextChar = string.char(reaper.gmem_read((gp_input_data + index) % G_IN_BUF_SIZE))
       if (nextChar == '\n') then handleAction(msg) ; msg = ''
       else msg = msg .. nextChar end
       index = index + 1
     end
-    reaper.gmem_write(gp_input_start, index)
+    reaper.gmem_write(gp_input_start, index % G_IN_BUF_SIZE)
     log("Read input bytes", index - inputStart, "from", inputStart, "and advanced next read start to", index)
   end
 end
@@ -160,10 +161,10 @@ function out(kind, msg)
   msg["type"] = kind
   json = serializeJson(msg) .. "\n"
   for c in json:gmatch"." do
-    reaper.gmem_write((gp_output_data + index) % G_BUF_SIZE, string.byte(c))
+    reaper.gmem_write((gp_output_data + index) % G_OUT_BUF_SIZE, string.byte(c))
     index = index + 1
   end
-  reaper.gmem_write(gp_output_end, index % G_BUF_SIZE)
+  reaper.gmem_write(gp_output_end, index % G_OUT_BUF_SIZE)
   log("out:", json)
 end
 

@@ -4,14 +4,15 @@
 TCP_PORT = 9595;
 
 // Global shared mammary addressticles, LUA + JSFX constants block:
-G_BUF_SIZE = 1024 * 1024;
+G_IN_BUF_SIZE = 10 * 1024;
+G_OUT_BUF_SIZE = 4 * 1024 * 1024;
 gp_freeGlobalMem = 0;
 gp_input_start    = gp_freeGlobalMem ; gp_freeGlobalMem = gp_freeGlobalMem + 1;
 gp_input_end      = gp_freeGlobalMem ; gp_freeGlobalMem = gp_freeGlobalMem + 1;
-gp_input_data     = gp_freeGlobalMem ; gp_freeGlobalMem = gp_freeGlobalMem + G_BUF_SIZE;
+gp_input_data     = gp_freeGlobalMem ; gp_freeGlobalMem = gp_freeGlobalMem + G_IN_BUF_SIZE;
 gp_output_start   = gp_freeGlobalMem ; gp_freeGlobalMem = gp_freeGlobalMem + 1;
 gp_output_end     = gp_freeGlobalMem ; gp_freeGlobalMem = gp_freeGlobalMem + 1;
-gp_output_data    = gp_freeGlobalMem ; gp_freeGlobalMem = gp_freeGlobalMem + G_BUF_SIZE;
+gp_output_data    = gp_freeGlobalMem ; gp_freeGlobalMem = gp_freeGlobalMem + G_OUT_BUF_SIZE;
 
 // Initialize the ring buffers empty
 gmem[gp_input_start] = 0;
@@ -47,7 +48,7 @@ function main()
     );
 
     (conn > 0) ? (
-      dataIndex = gmem[gp_input_end % G_BUF_SIZE];
+      dataIndex = gmem[gp_input_end % G_IN_BUF_SIZE];
       writeStart = dataIndex;
       newInputMessages = 0;
       status = 1;
@@ -60,7 +61,7 @@ function main()
             while (index < len) (
               nextChar = str_getchar(#msg, index);
               // ShowConsoleMsg( sprintf(#, "%d Copying '%c', # %d of len %d \n", loopCount, nextChar, index, len); );
-              gmem[(gp_input_data + dataIndex) % G_BUF_SIZE] = nextChar;
+              gmem[(gp_input_data + dataIndex) % G_IN_BUF_SIZE] = nextChar;
               index = index + 1;
               dataIndex = dataIndex + 1; 
             );
@@ -70,25 +71,27 @@ function main()
       );
       
       (newInputMessages) ? (
-        gmem[gp_input_end] = dataIndex % G_BUF_SIZE;
+        gmem[gp_input_end] = dataIndex % G_IN_BUF_SIZE;
         // ShowConsoleMsg( sprintf(#, "%d Received and copied %d bytes for %d msgs \n", loopCount, dataIndex - writeStart, newInputMessages); );
       );
 
       writeStart = gmem[gp_output_start];
       dataIndex = writeStart;
-
       #output = "";
+
+      // (dataIndex != gmem[gp_output_end]) ? (
+        // ShowConsoleMsg( sprintf(#, "Will send output to client connection, #chars: %d , %d to %d \n", gmem[gp_output_end] - writeStart, writeStart, gmem[gp_output_end]); );
+      // );
       while (dataIndex != gmem[gp_output_end]) (
-        nextChar = gmem[(gp_output_data + dataIndex) % G_BUF_SIZE];
+        nextChar = gmem[(gp_output_data + dataIndex) % G_OUT_BUF_SIZE];
         #output += sprintf(#, "%c", nextChar);
         dataIndex = dataIndex + 1;
+        (nextChar == '\n') ? (
+          status = tcp_send(conn, #output);
+          gmem[gp_output_start] = dataIndex % G_OUT_BUF_SIZE;
+          #output = "";
+        );
       );
-
-      (strlen(#output)) ? (
-        status = tcp_send(conn, #output);
-        gmem[gp_output_start] = dataIndex % G_BUF_SIZE;
-        // ShowConsoleMsg( sprintf(#, "Sent output to client connection, status: %d,  #chars: %d, advanced: %d, body:\n%s\n\n", status, dataIndex - writeStart, dataIndex, #output); ); 
-      )
     );
     
     loopCount = loopCount + 1;
