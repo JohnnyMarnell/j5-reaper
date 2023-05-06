@@ -21,6 +21,9 @@ class Reaper {
             .map(([key, val]) => [val, key]))
         this.socket = null
         this.stream = null
+        this.infoEvents = {}
+        "infoStart infoEnd track fx fxParam fxPreset send".split(" ")
+            .forEach(n => this.infoEvents[n] = true)
 
         this.bindEvents()
         this.connect(opts)
@@ -32,13 +35,13 @@ class Reaper {
             infoStart: e => this.project = { tracks: {} },
             track: e => this.project.tracks[e.tid] = {...e, fx: [], sends: []},
             fx: e => track(e).fx[e.fxid] = {...e, params: [], presets: [], lastPreset: null},
-            fxParam: e => track(e).fx[e.fxid].params[e.pid] = {...e, },
+            fxParam: e => track(e).fx[e.fxid].params[e.fxpid] = {...e, },
             fxPreset: e => track(e).fx[e.fxid].presets[e.preid] = {...e, },
             fxPresetActive: e => track(e).fx[e.fxid].lastPreset = {...e, },
             send: e => track(e).sends[e.sid] = {...e, },
             trackVal: e => track(e)[e.key] = e.val,
             sendVal: e => track(e).sends[e.sid][e.key] = e.val,
-            fxParamVal: e => track(e).fx[e.fxid].params[e.pid].val = e.val,
+            fxParamVal: e => track(e).fx[e.fxid].params[e.fxpid].val = e.val,
             infoEnd: e => console.log(`Finished loading project, ${
                 Object.keys(this.project.tracks).length} tracks`),
         }
@@ -69,7 +72,16 @@ class Reaper {
     handleMessage(msg) {
         if (this.opts.echo) console.log(msg)
         const event = JSON.parse(msg)
+        const change = !this.infoEvents[event.type]
+        if (change) {
+            if (event.tid !== undefined) event.tname = this.project.tracks[event.tid].tname
+            if (event.fxid !== undefined) event.fxname = this.project.tracks[event.tid].fx[event.fxid].fxname
+            if (event.fxpid !== undefined) event.fxpname = this.project.tracks[event.tid].fx[event.fxid].params[event.fxpid].fxpname
+            if (event.preid !== undefined) event.prename = this.project.tracks[event.tid].fx[event.fxid].presets[event.preid].prename
+            if (event.sid !== undefined) event.sname = this.project.tracks[event.tid].sends[event.sid].sname
+        }
         this.events.emit(event.type, event)
+        if (change) this.events.emit("change", event)
     }
     trackVal(track, param, val) {
         const key = this.cacheTrack(track)
@@ -77,7 +89,7 @@ class Reaper {
     }
     fxParam(track, fx, param, val) {
         const key = this.cacheFxParam(track, fx, param)
-        this.send(`fxp ${key.tid} ${key.fxid} ${key.pid} ${this.coerceVal(val)}`)
+        this.send(`fxp ${key.tid} ${key.fxid} ${key.fxpid} ${this.coerceVal(val)}`)
     }
     switchFxPreset(track, fx, preset) {
         const key = this.cacheFxPreset(track, fx, preset)
@@ -134,27 +146,27 @@ class Reaper {
     cacheTrack(track) {
         const key = `t.${track}`
         return this.cache[key] || (this.cache[key] = Object.values(this.project.tracks)
-            .filter(t => t.name.includes(track))[0])
+            .filter(t => t.tname.includes(track))[0])
     }
     cacheFxParam(track, fx, param) {
         const key = `t.${track}.fx.${fx}.p.${param}`
         return this.cache[key] || (this.cache[key] = Object.values(this.project.tracks)
-            .filter(t => t.name.includes(track))
-            .flatMap(t => t.fx).filter(f => f.name.includes(fx))
-            .flatMap(f => f.params).filter(p => p.name.includes(param))[0])
+            .filter(t => t.tname.includes(track))
+            .flatMap(t => t.fx).filter(f => f.fxname.includes(fx))
+            .flatMap(f => f.params).filter(p => p.fxpname.includes(param))[0])
     }
     cacheFxPreset(track, fx, preset) {
         const key = `t.${track}.fx.${fx}.pre.${preset}`
         return this.cache[key] || (this.cache[key] = Object.values(this.project.tracks)
-            .filter(t => t.name.includes(track))
-            .flatMap(t => t.fx).filter(f => f.name.includes(fx))
-            .flatMap(f => f.presets).filter(p => p.name.includes(preset))[0])
+            .filter(t => t.tname.includes(track))
+            .flatMap(t => t.fx).filter(f => f.fxname.includes(fx))
+            .flatMap(f => f.presets).filter(p => p.prename.includes(preset))[0])
     }
     cacheSend(track, send) {
         const key = `t.${track}.s.${send}`
         return this.cache[key] || (this.cache[key] = Object.values(this.project.tracks)
-            .filter(t => t.name.includes(track))
-            .flatMap(t => t.sends).filter(s => s.name.includes(send))[0])
+            .filter(t => t.tname.includes(track))
+            .flatMap(t => t.sends).filter(s => s.sname.includes(send))[0])
     }
 }
 

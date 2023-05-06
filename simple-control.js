@@ -3,7 +3,7 @@ const Reaper = require('./reaper')
 const {MidiIn, MidiOut, Midi} = require('j5-midi')
 
 window.addEventListener('DOMContentLoaded', () => {
-    const reaper = new Reaper()
+    const reaper = new Reaper({echo: true})
     
     /************** Easy MIDI mapping **************/
     const midiDevice = new MidiIn({pattern: /Novation|Launchkey.*MIDI|Korg|M-Audio/ig})
@@ -48,7 +48,18 @@ window.addEventListener('DOMContentLoaded', () => {
             const el = event.tid === -1 ? $masterMute : $guitarMute
             el.style.background = event.val === 0 ? 'none' : 'red'
         }
-        document.getElementById("events").innerHTML = JSON.stringify(event)
+    })
+
+    reaper.on('change', e => {
+        let msg = null
+        if (e.key === 'D_VOL') msg = `${e.tname} volume: ${e.val}`
+        if (e.key === 'B_MUTE') msg = `${e.tname} ${e.val === 0 ? 'unmuted' : 'muted'}`
+        if (e.key === 'D_PAN') msg = `${e.tname} is panned ${e.val === 0 ? 'center' : e.val > 0.0 ? 'right' : 'left'}`
+        if (e.type === 'fxPresetActive') msg = `${e.tname} loaded preset: ${e.prename}`
+        if (e.type === 'fxParamVal') msg = `${e.fxname} ${e.fxpname} is: ${e.val}`
+        if (e.type === 'fxParamVal' && e.fxpname === 'Bypass') msg = `${e.fxname} is ${e.val === 0 ? 'ON' : 'OFF'}`
+        if (e.fxpname && e.fxpname.includes('Semitones')) msg = `Transpose amount: ${(e.val - 0.5) / (1/128)}`
+        if (msg) document.getElementById("events").innerHTML = msg
     })
 
     reaper.on('ready', () => {
