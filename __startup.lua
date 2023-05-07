@@ -4,10 +4,11 @@
 reaper.gmem_attach("j5")
 LOG_ENABLED = false
 LOG_UNKNOWN_ACTIONS = true
+g_numMessages = 0
 
 -- Global shared mammary addressticles, LUA + JSFX constants block:
-G_IN_BUF_SIZE = 10 * 1024;
-G_OUT_BUF_SIZE = 4 * 1024 * 1024;
+G_IN_BUF_SIZE = 8 * 1024;
+G_OUT_BUF_SIZE = 128 * 1024;
 gp_freeGlobalMem = 0;
 gp_input_start    = gp_freeGlobalMem ; gp_freeGlobalMem = gp_freeGlobalMem + 1;
 gp_input_end      = gp_freeGlobalMem ; gp_freeGlobalMem = gp_freeGlobalMem + 1;
@@ -31,7 +32,7 @@ function handleAction(str)
   elseif (tokens[1] == 'fxp')   then setFxParam(tonumber(tokens[2]), tonumber(tokens[3]), tonumber(tokens[4]), tokens[5])
   elseif (tokens[1] == 'fxpre') then loadFxPreset(tonumber(tokens[2]), tonumber(tokens[3]), tonumber(tokens[4]))
   elseif (tokens[1] == 'info')  then sendProjectInfo()
-  elseif (LOG_UNKNOWN_ACTIONS)  then log("UNKNOWN ACTION", str)
+  elseif (LOG_UNKNOWN_ACTIONS)  then error("UNKNOWN ACTION", str)
   end
 end
 
@@ -122,13 +123,13 @@ function toggleable(specified, current)
     elseif (current == 1.0) then return 0.0
     elseif (current == false) then return true
     elseif (current == true) then return false
-    else log("Can't toggle param val from:", current) ; return nil
+    else error("Can't toggle param val from:", current) ; return nil
     end
   elseif (specified == "false") then return false
   elseif (specified == "true") then return true
   else
     local numVal = tonumber(specified)
-    if (numVal == nil) then log("Can't handle value:", specified) end
+    if (numVal == nil) then error("Can't handle value:", specified) end
     return numVal
   end
 end
@@ -141,17 +142,28 @@ end
 -- main loop, on notify / run of this action, read the input message
 -- received and written to shared mammary from EEL, and perform tasks
 function handleInput()
-  local inputStart, msg, nextChar = reaper.gmem_read(gp_input_start), ''
+  local inputStart, msg, numMsgs, msgs, nextByte, nextChar = reaper.gmem_read(gp_input_start), '', 0, {}
   local index = inputStart
-  if (index ~= nil and index ~= reaper.gmem_read(gp_input_end)) then
-    while (index ~= reaper.gmem_read(gp_input_end)) do
-      nextChar = string.char(reaper.gmem_read((gp_input_data + index) % G_IN_BUF_SIZE))
-      if (nextChar == '\n') then handleAction(msg) ; msg = ''
-      else msg = msg .. nextChar end
-      index = index + 1
+  if (index ~= nil and index < reaper.gmem_read(gp_input_end)) then
+    log("LUA IN: Reading", reaper.gmem_read(gp_input_end) - inputStart, "input bytes from", inputStart, "to", reaper.gmem_read(gp_input_end))
+    while (index < reaper.gmem_read(gp_input_end)) do
+      nextByte = reaper.gmem_read(gp_input_data + (index % G_IN_BUF_SIZE)) ; index = index + 1
+      if nextByte == nil or nextByte < 0 or nextByte > 255 then
+        error("LUA IN: Illegal character byte was read from global memory:", nextByte)
+      else
+        nextChar = string.char(nextByte)
+        if (nextChar ~= '\n') then msg = msg .. nextChar
+        else
+          msgs[numMsgs] = msg
+          numMsgs = numMsgs + 1
+          msg = ''
+          reaper.gmem_write(gp_input_start, index)
+        end
+      end
     end
-    reaper.gmem_write(gp_input_start, index % G_IN_BUF_SIZE)
-    log("Read input bytes", index - inputStart, "from", inputStart, "and advanced next read start to", index)
+    
+    log("LUA IN: Finished reading input bytes", index - inputStart, "from", inputStart, "and advanced next read start to", index, ", will now perform", numMsgs, "actions")
+    for i = 0, numMsgs - 1 do handleAction(msgs[i]) end
   end
 end
 
@@ -161,12 +173,13 @@ function out(kind, msg)
   msg["type"] = kind
   json = serializeJson(msg)
   for c in json:gmatch"." do
-    reaper.gmem_write((gp_output_data + index) % G_OUT_BUF_SIZE, string.byte(c))
-    index = index + 1
+    reaper.gmem_write(gp_output_data + (index % G_OUT_BUF_SIZE), string.byte(c)) ; index = index + 1
   end
-  reaper.gmem_write((gp_output_data + index) % G_OUT_BUF_SIZE, string.byte('\n'))
-  reaper.gmem_write(gp_output_end, (index + 1) % G_OUT_BUF_SIZE)
-  log("out:", json)
+  reaper.gmem_write(gp_output_data + (index % G_OUT_BUF_SIZE), string.byte('\n')) ; index = index + 1
+  reaper.gmem_write(gp_output_end, index)
+  if g_numMessages < 50 then log("out:", json)
+  elseif g_numMessages == 50 then log("out: Truncating output logging this loop...") end
+  g_numMessages = g_numMessages + 1
 end
 
 -- Basic unoptimized subset of, non bulletproof JSON, scalars, objects (Lua tables), arrays (Lua table 1-index keys)
@@ -200,9 +213,14 @@ function log(...)
   end
   reaper.ShowConsoleMsg(str .. "\n")
 end
+function error(...)
+  local old = LOG_ENABLED; LOG_ENABLED = true; log("\n\n\n *********");
+  log(...); log("********* \n\n\n"); LOG_ENABLED = old;
+end
 
 -- Start main defer loop
 function main()
+  g_numMessages = 0
   handleInput()
   reaper.defer(main)
 end
